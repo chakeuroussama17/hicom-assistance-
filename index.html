@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a1628">
+<title>HICOM Assistant</title>
+
+<!-- Lottie player (only external dependency besides the chat API) -->
+<script src="https://unpkg.com/@lottiefiles/lottie-player@latest/dist/lottie-player.js"></script>
+
+<style>
+/* ==========================================================================
+   HICOM Assistant — internal AI assistant
+   Palette: bg #0a1628 · navy #1B3A6B · gold #F5A623
+   ========================================================================== */
+
+:root{
+  --bg:        #0a1628;
+  --bg-mid:    #0D2545;
+  --navy:      #1B3A6B;
+  --gold:      #F5A623;
+  --card:      rgba(255,255,255,0.06);
+  --border:    rgba(255,255,255,0.12);
+  --chat-bg:   #ECEEF1;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+n8n
+*{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+
+html,body{
+  height:100%;
+  overflow:hidden;                       /* screens scroll internally, page never does */
+}
+
+body{
+  font-family: var(--font);
+  background: var(--bg);
+  color:#fff;
+  overscroll-behavior:none;
+}
+
+/* App shell — mobile first (390px), centred and framed on wider screens */
+#app{
+  position:relative;
+  width:100%;
+  max-width:480px;
+  height:100%;
+  height:100dvh;                         /* avoids mobile browser chrome overlap */
+  margin:0 auto;
+  overflow:hidden;
+  background: linear-gradient(160deg,#0a1628 0%,#0D2545 50%,#0a1628 100%);
+  box-shadow:0 0 60px rgba(0,0,0,.6);
+}
+
+/* ==========================================================================
+   1. PARTICLE BACKGROUND (canvas, sits behind everything)
+   ========================================================================== */
+#particles{
+  position:absolute;
+  inset:0;
+  z-index:1;
+  pointer-events:none;
+}
+
+/* ---- Die casting plant photo, pushed back to read as texture ---- */
+.plant-bg{
+  position:absolute;
+  inset:0;
+  z-index:0;
+  overflow:hidden;
+  pointer-events:none;
+}
+.plant-bg img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:50% 46%;      /* keeps the molten glow near the robot */
+  filter: blur(1.8px) saturate(.85) brightness(.82) contrast(1.04);
+  opacity:.5;
+  transform-origin:52% 48%;
+  animation: plantDrift 26s ease-in-out infinite alternate;
+}
+@keyframes plantDrift{
+  from{ transform: scale(1.04); }
+  to  { transform: scale(1.14); }
+}
+/* Navy wash + vignette so the header, greeting and footer stay readable */
+.plant-bg::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(circle at 50% 44%,
+      rgba(10,22,40,0)   0%,
+      rgba(10,22,40,.32) 50%,
+      rgba(10,22,40,.88) 82%),
+    linear-gradient(180deg,
+      rgba(10,22,40,.82) 0%,
+      rgba(13,37,69,.16) 44%,
+      rgba(10,22,40,.92) 100%);
+}
+
+/* ==========================================================================
+   2. SCREENS
+   ========================================================================== */
+.screen{
+  position:absolute;
+  inset:0;
+  z-index:2;
+  display:flex;
+  flex-direction:column;
+}
+
+/* Chat screen slides in from the right */
+#chatScreen{
+  z-index:4;
+  transform: translateX(100%);
+  transition: transform .4s cubic-bezier(.32,.72,.24,1);
+  background: var(--chat-bg);
+  will-change: transform;
+}
+#chatScreen.open{ transform: translateX(0); }
+
+/* ==========================================================================
+   3. HOME SCREEN
+   ========================================================================== */
+#homeScreen{
+  padding: 14px 18px calc(10px + env(safe-area-inset-bottom));
+  padding-top: calc(14px + env(safe-area-inset-top));
+  justify-content:space-between;
+  text-align:center;
+}
+
+/* ---- Top header ---- */
+.home-header{ flex:0 0 auto; }
+
+.brand-row{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+}
+
+.brand-pill{
+  background: var(--gold);
+  color:#0a1628;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:1.2px;
+  padding:5px 13px;
+  border-radius:999px;
+  box-shadow:0 2px 12px rgba(245,166,35,.35);
+}
+
+.brand-sub{
+  font-size:12.5px;
+  color: rgba(255,255,255,.55);
+  font-weight:500;
+}
+
+.brand-tag{
+  margin-top:7px;
+  font-size:10.5px;
+  letter-spacing:2.4px;
+  text-transform:uppercase;
+  color: var(--gold);
+  opacity:.85;
+  font-weight:600;
+}
+
+/* ---- Robot + orbit rings ---- */
+.robot-stage{
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  min-height:0;                          /* lets the stage shrink on short screens */
+}
+
+.orbit-wrap{
+  position:relative;
+  width:280px;
+  height:280px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* Radial gold glow pulsing behind the robot */
+.glow-pulse{
+  position:absolute;
+  width:210px;
+  height:210px;
+  border-radius:50%;
+  background: radial-gradient(circle,
+              rgba(245,166,35,.55) 0%,
+              rgba(245,166,35,.22) 42%,
+              rgba(245,166,35,0)   72%);
+  animation: glowPulse 2.5s ease-in-out infinite;
+  pointer-events:none;
+}
+@keyframes glowPulse{
+  0%,100%{ transform: scale(1);    opacity:.3; }
+  50%    { transform: scale(1.15); opacity:.7; }
+}
+
+/* Orbit rings */
+.ring{
+  position:absolute;
+  border-radius:50%;
+  /* 20% gold on the border colour rather than element opacity, so the orbit
+     dots below keep their full brightness and glow. */
+  border:1.5px solid rgba(245,166,35,.2);
+  pointer-events:none;
+}
+.ring-outer{
+  width:280px; height:280px;
+  animation: spin 10s linear infinite;         /* clockwise */
+}
+.ring-inner{
+  width:200px; height:200px;
+  animation: spinReverse 8s linear infinite;   /* counter-clockwise */
+  border-style:dashed;
+}
+@keyframes spin       { from{ transform: rotate(0deg); } to{ transform: rotate(360deg);  } }
+@keyframes spinReverse{ from{ transform: rotate(0deg); } to{ transform: rotate(-360deg); } }
+
+/* 4 glowing dots pinned at N/S/E/W — children of the ring so they ride its rotation */
+.orbit-dot{
+  position:absolute;
+  width:7px; height:7px;
+  border-radius:50%;
+  background: var(--gold);
+  box-shadow:0 0 10px 2px rgba(245,166,35,.9);
+}
+.orbit-dot.n{ top:-4px;   left:50%; transform: translateX(-50%); }
+.orbit-dot.s{ bottom:-4px; left:50%; transform: translateX(-50%); }
+.orbit-dot.e{ right:-4px;  top:50%;  transform: translateY(-50%); }
+.orbit-dot.w{ left:-4px;   top:50%;  transform: translateY(-50%); }
+
+/* Lottie robot */
+#robotBtn{
+  position:relative;
+  z-index:2;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:none;
+  border:none;
+  cursor:pointer;
+  padding:0;
+}
+lottie-player{
+  display:block;
+  filter: drop-shadow(0 6px 24px rgba(245,166,35,.25));
+}
+/* Tap reaction */
+lottie-player.bounce{ animation: robotBounce .3s ease; }
+@keyframes robotBounce{
+  0%  { transform: scale(1);   }
+  35% { transform: scale(.94); }
+  70% { transform: scale(1.04);}
+  100%{ transform: scale(1);   }
+}
+
+/* Static stand-in if the Lottie can neither be fetched nor inlined */
+#robotFallback{
+  display:none;
+  font-size:86px;
+  line-height:1;
+  filter: drop-shadow(0 6px 24px rgba(245,166,35,.35));
+}
+#robotFallback.bounce{ animation: robotBounce .3s ease; }
+
+.tap-hint{
+  margin-top:14px;
+  text-shadow:0 1px 6px rgba(10,22,40,.9);
+  font-size:12.5px;
+  color: rgba(255,255,255,.8);
+  animation: hintFade 2s ease-in-out infinite;
+}
+@keyframes hintFade{
+  0%,100%{ opacity:.5; }
+  50%    { opacity:1;  }
+}
+
+/* ---- Rotating multilingual greeting ---- */
+.greeting{
+  margin-top:20px;
+  min-height:64px;                       /* fixed box so the layout never jumps */
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+}
+
+.greet-main{
+  /* Explicit stack so Bangla, Chinese and Arabic all find a system face */
+  font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans Bengali",
+               "Noto Sans SC", "Microsoft YaHei", "Segoe UI Emoji", Roboto, sans-serif;
+  font-size:27px;
+  font-weight:700;
+  line-height:1.3;
+  color:#fff;
+  text-shadow:0 2px 20px rgba(245,166,35,.45);
+}
+
+.greet-sub{
+  margin-top:6px;
+  text-shadow:0 1px 6px rgba(10,22,40,.9);
+  font-size:9.5px;
+  letter-spacing:2.2px;
+  text-transform:uppercase;
+  font-weight:600;
+  color: var(--gold);
+  opacity:.9;
+}
+
+/* Both lines fade + rise together; JS toggles .show on the wrapper */
+.greet-main,
+.greet-sub{
+  opacity:0;
+  transform: translateY(9px);
+  transition: opacity .5s ease, transform .5s ease;
+}
+.greeting.show .greet-main,
+.greeting.show .greet-sub{
+  opacity:1;
+  transform: translateY(0);
+}
+.greeting.show .greet-sub{ transition-delay:.07s; }
+
+/* ---- Footer ---- */
+.home-footer{
+  flex:0 0 auto;
+  font-size:10.5px;
+  color: rgba(255,255,255,.35);
+}
+
+/* ==========================================================================
+   4. CHAT SCREEN — header
+   ========================================================================== */
+.chat-header{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  padding-top: calc(10px + env(safe-area-inset-top));
+  background: var(--navy);
+  box-shadow:0 3px 12px rgba(0,0,0,.28);
+  z-index:2;
+}
+
+.icon-btn{
+  background:none;
+  border:none;
+  color:#fff;
+  font-size:20px;
+  line-height:1;
+  padding:6px 8px;
+  border-radius:10px;
+  cursor:pointer;
+  transition: background .18s ease;
+}
+.icon-btn:active{ background: rgba(255,255,255,.14); }
+
+.bot-avatar{
+  width:36px; height:36px;
+  flex:0 0 36px;
+  border-radius:50%;
+  background: var(--gold);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:19px;
+  box-shadow:0 0 10px rgba(245,166,35,.4);
+}
+
+.header-meta{ flex:1 1 auto; min-width:0; }
+.header-title{ font-size:14.5px; font-weight:700; color:#fff; }
+.header-status{
+  font-size:10.5px;
+  color: rgba(255,255,255,.65);
+  display:flex;
+  align-items:center;
+  gap:5px;
+  margin-top:1px;
+}
+.status-dot{
+  width:7px; height:7px;
+  border-radius:50%;
+  background:#4CAF50;
+  box-shadow:0 0 6px #4CAF50;
+}
+
+/* ==========================================================================
+   5. CHAT SCREEN — messages
+   ========================================================================== */
+#messages{
+  flex:1 1 auto;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  background: var(--chat-bg);
+  padding:16px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+/* Every message animates in */
+.msg-row{
+  display:flex;
+  align-items:flex-end;
+  gap:7px;
+  max-width:100%;
+  animation: msgIn .3s ease both;
+}
+@keyframes msgIn{
+  from{ opacity:0; transform: translateY(10px); }
+  to  { opacity:1; transform: translateY(0);    }
+}
+.msg-row.bot { justify-content:flex-start; align-items:flex-start; }
+.msg-row.user{ justify-content:flex-end;   }
+
+/* Small avatar beside the first bot message of a group */
+.msg-avatar{
+  width:26px; height:26px;
+  flex:0 0 26px;
+  border-radius:50%;
+  background: var(--gold);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:13px;
+  margin-top:1px;                        /* sits level with the top of the first bubble */
+}
+.msg-avatar.spacer{ background:none; box-shadow:none; }
+
+.msg-col{ max-width:80%; display:flex; flex-direction:column; }
+
+.bubble{
+  padding:9px 12px;
+  font-size:13px;
+  line-height:1.5;
+  word-wrap:break-word;
+  overflow-wrap:anywhere;
+  white-space:pre-wrap;
+}
+.bubble.bot{
+  background:#fff;
+  border:0.5px solid #ddd;
+  color:#1a1a1a;
+  border-radius:18px 18px 18px 4px;      /* flat bottom-left */
+  box-shadow:0 1px 2px rgba(0,0,0,.05);
+}
+.bubble.user{
+  background: var(--navy);
+  color:#fff;
+  border-radius:18px 18px 4px 18px;      /* flat bottom-right */
+}
+
+.stamp{
+  font-size:9px;
+  color:#8b8f96;
+  margin-top:3px;
+  padding:0 4px;
+}
+.stamp.right{ text-align:right; }
+
+/* ---- Typing indicator ---- */
+.typing{
+  display:flex;
+  align-items:center;
+  gap:4px;
+  background:#fff;
+  border:0.5px solid #ddd;
+  border-radius:18px 18px 18px 4px;
+  padding:12px 14px;
+  box-shadow:0 1px 2px rgba(0,0,0,.05);
+}
+.typing span{
+  width:6px; height:6px;
+  border-radius:50%;
+  background:#9aa0a6;
+  animation: typingBounce 1.3s ease-in-out infinite;
+}
+.typing span:nth-child(2){ animation-delay:.18s; }
+.typing span:nth-child(3){ animation-delay:.36s; }
+@keyframes typingBounce{
+  0%,60%,100%{ transform: translateY(0);    }
+  30%        { transform: translateY(-6px); }
+}
+
+/* ---- Quick reply chips ---- */
+.chips{
+  display:flex;
+  gap:7px;
+  overflow-x:auto;
+  padding:2px 0 4px 33px;                /* indented to line up under the bot bubble */
+  scrollbar-width:none;
+  animation: msgIn .3s ease both;
+}
+.chips::-webkit-scrollbar{ display:none; }
+
+.chip{
+  flex:0 0 auto;
+  background:#fff;
+  border:1px solid var(--navy);
+  color: var(--navy);
+  font-family:inherit;
+  font-size:10px;
+  font-weight:600;
+  padding:7px 12px;
+  border-radius:999px;
+  white-space:nowrap;
+  cursor:pointer;
+  transition: background .18s ease, color .18s ease, transform .15s ease;
+}
+.chip:active{ transform: scale(.97); background: var(--navy); color:#fff; }
+
+/* ==========================================================================
+   6. SPECIAL MESSAGE CARDS
+   ========================================================================== */
+.card{
+  background:#fff;
+  border:0.5px solid #ddd;
+  border-radius:14px;
+  padding:11px 12px;
+  margin-top:6px;
+  box-shadow:0 1px 3px rgba(0,0,0,.07);
+  animation: msgIn .3s ease both;
+}
+.card-title{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  font-size:13px;
+  font-weight:700;
+  color:#1a1a1a;
+}
+.card-text{
+  font-size:12.5px;
+  line-height:1.5;
+  color:#3a3f46;
+  margin-top:6px;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+.card-badge{
+  display:inline-block;
+  margin-top:9px;
+  font-size:9.5px;
+  font-weight:600;
+  color:#6b7076;
+  background:#F1F2F4;
+  border-radius:999px;
+  padding:3px 9px;
+}
+
+/* Booking = green rail · Security = red rail */
+.card.booking { border-left:4px solid #4CAF50; }
+.card.security{ border-left:4px solid #E53935; }
+
+/* ---- Map card ---- */
+.card.map{ padding:11px; }
+.map-label{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:12px;
+  font-weight:700;
+  color: var(--navy);
+  margin-bottom:8px;
+}
+.map-frame{
+  position:relative;
+  min-height:120px;
+  border-radius:10px;
+  overflow:hidden;
+  background:#F1F2F4;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.map-frame img{
+  display:block;
+  width:100%;
+  height:auto;
+  border-radius:10px;
+}
+.map-frame img.loading{ display:none; }
+
+/* Spinner shown while the map image downloads */
+.spinner{
+  width:24px; height:24px;
+  border:2.5px solid #dcdee2;
+  border-top-color: var(--navy);
+  border-radius:50%;
+  animation: spin .8s linear infinite;
+}
+.map-error{
+  font-size:12px;
+  color:#8b8f96;
+  padding:22px 10px;
+  text-align:center;
+}
+
+/* ---- Error + retry ---- */
+.retry-btn{
+  align-self:flex-start;
+  margin-top:6px;
+  background: var(--gold);
+  color:#0a1628;
+  border:none;
+  font-family:inherit;
+  font-size:11px;
+  font-weight:700;
+  padding:6px 15px;
+  border-radius:999px;
+  cursor:pointer;
+  box-shadow:0 2px 8px rgba(245,166,35,.35);
+  transition: transform .15s ease, opacity .2s ease;
+}
+.retry-btn:active{ transform: scale(.96); }
+.retry-btn[disabled]{ opacity:.5; cursor:default; }
+
+/* ==========================================================================
+   7. INPUT BAR
+   ========================================================================== */
+.input-bar{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  background:#fff;
+  border-top:0.5px solid #ddd;
+  padding:10px 12px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+#chatInput{
+  flex:1 1 auto;
+  min-width:0;
+  border:1px solid #dcdee2;
+  background:#F5F6F8;
+  border-radius:999px;
+  padding:10px 15px;
+  font-family:inherit;
+  font-size:13.5px;
+  color:#1a1a1a;
+  outline:none;
+  transition: border-color .2s ease, background .2s ease;
+}
+#chatInput:focus{ border-color: var(--navy); background:#fff; }
+#chatInput:disabled{ opacity:.6; }
+
+#sendBtn{
+  flex:0 0 38px;
+  width:38px; height:38px;
+  border:none;
+  border-radius:50%;
+  background:#C9CDD3;                    /* grey while empty */
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:default;
+  transition: background .2s ease, transform .15s ease, box-shadow .2s ease;
+}
+#sendBtn.active{
+  background: var(--gold);
+  color:#0a1628;
+  cursor:pointer;
+  box-shadow:0 2px 10px rgba(245,166,35,.4);
+}
+#sendBtn.active:active{ transform: scale(.93); }
+#sendBtn svg{ width:18px; height:18px; }
+
+/* ==========================================================================
+   8. RESPONSIVE / ACCESSIBILITY
+   ========================================================================== */
+@media (min-width:481px){
+  body{ background:#060e1c; }
+  #app{ border-left:1px solid rgba(255,255,255,.06); border-right:1px solid rgba(255,255,255,.06); }
+}
+
+/* Short screens: shrink the orbit stage so the action grid still fits */
+@media (max-height:720px){
+  .orbit-wrap{ transform: scale(.86); }
+  .greeting{ min-height:54px; margin-top:12px; }
+  .greet-main{ font-size:22px; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+
+  <!-- Die casting plant backdrop, behind every screen -->
+  <div class="plant-bg" aria-hidden="true">
+    <img src="diecast.png" alt="">
+  </div>
+
+  <!-- Drifting particle field -->
+  <canvas id="particles"></canvas>
+
+  <!-- ====================================================================
+       PAGE 1 — HOME
+       ==================================================================== -->
+  <section id="homeScreen" class="screen">
+
+    <header class="home-header">
+      <div class="brand-row">
+        <span class="brand-pill">HICOM</span>
+        <span class="brand-sub">Diecastings Sdn. Bhd.</span>
+      </div>
+      <div class="brand-tag">Internal AI Assistant</div>
+    </header>
+
+    <div class="robot-stage">
+      <div class="orbit-wrap">
+        <!-- Pulsing radial glow -->
+        <div class="glow-pulse"></div>
+
+        <!-- Outer ring (clockwise) with N/S/E/W dots riding along -->
+        <div class="ring ring-outer">
+          <i class="orbit-dot n"></i>
+          <i class="orbit-dot s"></i>
+          <i class="orbit-dot e"></i>
+          <i class="orbit-dot w"></i>
+        </div>
+
+        <!-- Inner ring (counter-clockwise) -->
+        <div class="ring ring-inner"></div>
+
+        <!-- The Lottie robot -->
+        <button id="robotBtn" aria-label="Open chat with HICOM Assistant">
+          <lottie-player
+            id="robotPlayer"
+            src="robot.json"
+            background="transparent"
+            speed="1"
+            style="width: 240px; height: 240px;"
+            loop
+            autoplay>
+          </lottie-player>
+          <div id="robotFallback">&#129302;</div>
+        </button>
+      </div>
+
+      <!-- Cycles through Hi / Salam Alaikum / Bangla / Chinese / Malay -->
+      <div class="greeting" id="greeting">
+        <span class="greet-main"></span>
+        <span class="greet-sub"></span>
+      </div>
+
+      <div class="tap-hint">&#128070; tap to start</div>
+    </div>
+
+    <footer class="home-footer">&#128737;&#65039; Powered by HICOM AI &middot; Available 24/7</footer>
+  </section>
+
+  <!-- ====================================================================
+       PAGE 2 — CHAT
+       ==================================================================== -->
+  <section id="chatScreen" class="screen" aria-hidden="true">
+
+    <header class="chat-header">
+      <button class="icon-btn" id="backBtn" aria-label="Back to home">&#8592;</button>
+      <div class="bot-avatar">&#129302;</div>
+      <div class="header-meta">
+        <div class="header-title">HICOM Assistant</div>
+        <div class="header-status"><i class="status-dot"></i> Online &middot; Always here to help</div>
+      </div>
+      <button class="icon-btn" id="menuBtn" aria-label="More options" tabindex="-1">&#8942;</button>
+    </header>
+
+    <div id="messages"></div>
+
+    <div class="input-bar">
+      <input id="chatInput" type="text" placeholder="Ask anything&hellip;"
+             autocomplete="off" autocapitalize="sentences" spellcheck="false">
+      <button id="sendBtn" aria-label="Send message">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="19" x2="12" y2="5"></line>
+          <polyline points="5 12 12 5 19 12"></polyline>
+        </svg>
+      </button>
+    </div>
+  </section>
+
+</div>
+
+<!-- Inline copy of robot.json, used ONLY when the browser refuses to fetch the
+     file (Chrome blocks cross-origin fetches from file:// pages). Regenerate
+     this block if robot.json is replaced. -->
+<script id="robotFallbackData" type="application/json">{"v":"5.12.1","fr":30,"ip":0,"op":180,"w":682,"h":902,"nm":"125887871","ddd":0,"assets":[],"layers":[{"ddd":0,"ind":1,"ty":4,"nm":"eyes","parent":2,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":1,"k":[{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":0,"s":[1.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.187,"y":0.187},"t":10,"s":[36.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":15,"s":[36.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.167,"y":0.167},"t":30,"s":[-34.777,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.167,"y":0},"t":35,"s":[-34.777,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.333,"y":0.333},"t":45,"s":[1.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":60,"s":[1.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":65,"s":[1.223,36.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.269,"y":0},"t":71.75,"s":[1.223,-1.235,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":78.5,"s":[1.223,36.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.269,"y":0},"t":85.25,"s":[1.223,-1.235,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":92,"s":[1.223,36.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.333,"y":0.333},"t":97,"s":[1.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":137,"s":[1.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.227,"y":0.227},"t":147,"s":[36.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.697,"y":1},"o":{"x":0.187,"y":0},"t":155,"s":[36.223,17.765,0],"to":[0,0,0],"ti":[0,0,0]},{"t":165,"s":[1.223,17.765,0]}],"ix":2,"l":2},"a":{"a":0,"k":[541.223,355.429,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-16.308],[16.308,0],[0,16.308],[-16.308,0]],"o":[[0,16.308],[-16.308,0],[0,-16.308],[16.308,0]],"v":[[29.527,9.658],[0,17.85],[-29.527,9.658],[0,-19.87]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.588,0.961,1,0.5,0.459,0.92,0.969,1,0.329,0.878,0.937],"ix":9}},"s":{"a":0,"k":[-0.005,0.174],"ix":5},"e":{"a":0,"k":[25.161,0.174],"ix":6},"t":2,"h":{"a":0,"k":0,"ix":7},"a":{"a":0,"k":0,"ix":8},"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[632.005,329.826],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":1,"k":[{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":17,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":19,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":20,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.32,0.32],"y":[0,0]},"t":22,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":110,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":112,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":113,"s":[100,0]},{"t":115,"s":[100,100]}],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,0],[23.65,0],[0,23.65]],"o":[[0,23.65],[-23.65,0],[0,0]],"v":[[42.822,-21.411],[0,21.411],[-42.822,-21.411]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.588,0.961,1,0.5,0.459,0.92,0.969,1,0.329,0.878,0.937],"ix":9}},"s":{"a":0,"k":[-0.184,-0.737],"ix":5},"e":{"a":0,"k":[33.669,-0.737],"ix":6},"t":2,"h":{"a":0,"k":0,"ix":7},"a":{"a":0,"k":0,"ix":8},"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[539.184,402.737],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":6,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 2","np":2,"cix":2,"bm":0,"ix":2,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-26.578],[26.578,0],[0,26.578],[-26.578,0]],"o":[[0,26.578],[-26.578,0],[0,-26.578],[26.578,0]],"v":[[48.124,0],[0,48.124],[-48.124,0],[0,-48.124]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.588,0.961,1,0.5,0.459,0.92,0.969,1,0.329,0.878,0.937],"ix":9}},"s":{"a":0,"k":[-0.392,0.167],"ix":5},"e":{"a":0,"k":[47.731,0.167],"ix":6},"t":2,"h":{"a":0,"k":0,"ix":7},"a":{"a":0,"k":0,"ix":8},"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[633.392,334.833],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":1,"k":[{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":17,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":19,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":20,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.32,0.32],"y":[0,0]},"t":22,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":110,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":112,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":113,"s":[100,0]},{"t":115,"s":[100,100]}],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":6,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 3","np":2,"cix":2,"bm":0,"ix":3,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-1.863],[4.279,-4.279],[6.527,0],[0,13.054],[-0.612,0.612],[-0.93,0],[0,0]],"o":[[0,6.527],[-4.279,4.279],[-13.054,0],[0,-0.93],[0.612,-0.612],[0,0],[1.863,0]],"v":[[23.637,-10.13],[16.713,6.583],[0,13.507],[-23.637,-10.13],[-22.648,-12.518],[-20.26,-13.507],[20.26,-13.507]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"fl","c":{"a":0,"k":[0.329411774874,0.878431379795,0.937254905701,1],"ix":4},"o":{"a":0,"k":100,"ix":5},"r":1,"bm":0,"nm":"Fill 1","mn":"ADBE Vector Graphic - Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[540,398.484],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 4","np":2,"cix":2,"bm":0,"ix":4,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-16.308],[16.308,0],[0,16.308],[-16.308,0]],"o":[[0,16.308],[-16.308,0],[0,-16.308],[16.308,0]],"v":[[29.527,9.658],[0,17.85],[-29.527,9.658],[0,-19.87]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.588,0.961,1,0.5,0.459,0.92,0.969,1,0.329,0.878,0.937],"ix":9}},"s":{"a":0,"k":[-0.667,0.174],"ix":5},"e":{"a":0,"k":[24.499,0.174],"ix":6},"t":2,"h":{"a":0,"k":0,"ix":7},"a":{"a":0,"k":0,"ix":8},"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[447.667,329.826],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":1,"k":[{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":17,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":19,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":20,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.32,0.32],"y":[0,0]},"t":22,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":110,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":112,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":113,"s":[100,0]},{"t":115,"s":[100,100]}],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 5","np":2,"cix":2,"bm":0,"ix":5,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-26.578],[26.578,0],[0,26.578],[-26.578,0]],"o":[[0,26.578],[-26.578,0],[0,-26.578],[26.578,0]],"v":[[48.124,0],[0,48.124],[-48.124,0],[0,-48.124]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.588,0.961,1,0.5,0.459,0.92,0.969,1,0.329,0.878,0.937],"ix":9}},"s":{"a":0,"k":[-0.055,0.167],"ix":5},"e":{"a":0,"k":[48.069,0.167],"ix":6},"t":2,"h":{"a":0,"k":0,"ix":7},"a":{"a":0,"k":0,"ix":8},"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[449.055,334.833],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":1,"k":[{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":17,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":19,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":20,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.32,0.32],"y":[0,0]},"t":22,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":110,"s":[100,100]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.302,0.302],"y":[0,0]},"t":112,"s":[100,0]},{"i":{"x":[0.667,0.667],"y":[1,1]},"o":{"x":[0.333,0.333],"y":[0,0]},"t":113,"s":[100,0]},{"t":115,"s":[100,100]}],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":6,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 6","np":2,"cix":2,"bm":0,"ix":6,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":180,"st":0,"ct":1,"bm":0},{"ddd":0,"ind":2,"ty":4,"nm":"Face","parent":3,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":1,"k":[{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":0,"s":[540,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.187,"y":0.187},"t":10,"s":[560,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":15,"s":[560,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.167,"y":0.167},"t":30,"s":[517,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.167,"y":0},"t":35,"s":[517,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.333,"y":0.333},"t":45,"s":[540,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":60,"s":[540,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":65,"s":[540,350.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.269,"y":0},"t":71.75,"s":[540,322.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":78.5,"s":[540,350.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.269,"y":0},"t":85.25,"s":[540,322.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":92,"s":[540,350.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.333,"y":0.333},"t":97,"s":[540,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":137,"s":[540,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.227,"y":0.227},"t":147,"s":[560,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.697,"y":1},"o":{"x":0.187,"y":0},"t":155,"s":[560,337.664,0],"to":[0,0,0],"ti":[0,0,0]},{"t":165,"s":[540,337.664,0]}],"ix":2,"l":2},"a":{"a":0,"k":[0,0,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[94.925,0],[24.162,13.068],[0,18.556],[0,0],[-16.297,8.814],[-94.925,0],[-24.163,-13.068],[0,-18.556],[0,0],[16.297,-8.814]],"o":[[-94.925,0],[-16.297,-8.814],[0,0],[0,-18.556],[24.162,-13.068],[94.925,0],[16.296,8.814],[0,0],[0,18.556],[-24.163,13.069]],"v":[[0,118.361],[-167.816,89.715],[-194.236,45.343],[-194.236,-45.342],[-167.816,-89.715],[0,-118.361],[167.816,-89.715],[194.236,-45.342],[194.236,45.343],[167.816,89.715]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.122,0.278,0.376,0.5,0.088,0.202,0.273,1,0.055,0.125,0.169],"ix":9}},"s":{"a":0,"k":[0,0.192],"ix":5},"e":{"a":0,"k":[206.101,0.192],"ix":6},"t":2,"h":{"a":0,"k":0,"ix":7},"a":{"a":0,"k":0,"ix":8},"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":180,"st":0,"ct":1,"bm":0},{"ddd":0,"ind":3,"ty":4,"nm":"head","parent":5,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":0,"k":[540.357,480.307,0],"ix":2,"l":2},"a":{"a":0,"k":[540.357,480.307,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[6.497,-1.516],[11.223,-13.509],[-1.086,4.276],[-15.557,8.761],[-15.154,3.543],[-1.9,-5.381],[-0.025,-0.072]],"o":[[-44.061,10.281],[-2.819,3.394],[5.766,-22.7],[13.504,-7.606],[5.557,-1.299],[0.025,0.072],[2.221,6.291]],"v":[[38.471,-11.132],[-39.773,31.928],[-46.995,28.28],[-10.218,-17.474],[33.316,-33.152],[46.416,-25.975],[46.493,-25.758]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"fl","c":{"a":0,"k":[1,1,1,1],"ix":4},"o":{"a":0,"k":100,"ix":5},"r":1,"bm":0,"nm":"Fill 1","mn":"ADBE Vector Graphic - Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[380.775,226.347],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":49,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,0],[-23.713,-12.825],[-95.035,0],[-30.144,16.303],[0,26.959],[0,0],[23.713,12.825],[95.035,0],[30.144,-16.303],[0,-26.959]],"o":[[0,26.959],[30.144,16.303],[95.035,0],[23.713,-12.825],[0,0],[0,-26.959],[-30.144,-16.303],[-95.035,0],[-23.713,12.825],[0,0]],"v":[[-217.223,59.103],[-178.751,123.694],[0,155.108],[178.751,123.694],[217.223,59.103],[217.223,-59.103],[178.751,-123.694],[0,-155.108],[-178.751,-123.694],[-217.223,-59.103]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.894,0.91,0.937,0.5,0.761,0.778,0.814,1,0.627,0.647,0.69],"ix":9}},"s":{"a":0,"k":[-0.357,-119.307],"ix":5},"e":{"a":0,"k":[-0.357,152.047],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[536.357,322.307],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 2","np":2,"cix":2,"bm":0,"ix":2,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":180,"st":0,"ct":1,"bm":0},{"ddd":0,"ind":4,"ty":4,"nm":"ears","parent":3,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":1,"k":[{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":0,"s":[540,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.187,"y":0.187},"t":10,"s":[514,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":15,"s":[514,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.167,"y":0.167},"t":30,"s":[568,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.167,"y":0},"t":35,"s":[568,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.333,"y":0.333},"t":45,"s":[540,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":60,"s":[540,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":65,"s":[540,245.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.269,"y":0},"t":71.75,"s":[540,280.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":78.5,"s":[540,245.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.269,"y":0},"t":85.25,"s":[540,280.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":92,"s":[540,245.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.333,"y":0.333},"t":97,"s":[540,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":137,"s":[540,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":0.667},"o":{"x":0.227,"y":0.227},"t":147,"s":[514,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.697,"y":1},"o":{"x":0.187,"y":0},"t":155,"s":[514,261.003,0],"to":[0,0,0],"ti":[0,0,0]},{"t":165,"s":[540,261.003,0]}],"ix":2,"l":2},"a":{"a":0,"k":[540,261.003,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-31.552],[43.719,0],[0,31.552],[-79.16,0]],"o":[[0,31.552],[-43.719,0],[0,-31.552],[79.16,0]],"v":[[79.16,0],[0,57.131],[-79.16,0],[0,-57.131]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.627,0.647,0.69,0.5,0.761,0.778,0.814,1,0.894,0.91,0.937],"ix":9}},"s":{"a":0,"k":[0,-16.131],"ix":5},"e":{"a":0,"k":[0,-54.282],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[540,196.131],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,0],[0,0],[0,19.229],[0,0],[19.005,2.926],[0,0],[0,0],[0,0]],"o":[[0,0],[19.005,-2.926],[0,0],[0,-19.229],[0,0],[0,0],[0,0],[0,0]],"v":[[-22.405,59.103],[-10.629,57.29],[22.405,18.781],[22.405,-18.781],[-10.629,-57.29],[-22.405,-59.103],[-70.905,-65.404],[-72.318,62.081]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.627,0.647,0.69,0.5,0.761,0.778,0.814,1,0.894,0.91,0.937],"ix":9}},"s":{"a":0,"k":[-28.373,0.096],"ix":5},"e":{"a":0,"k":[18.798,0.096],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[775.373,323.904],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 2","np":2,"cix":2,"bm":0,"ix":2,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,0],[0,0],[0,19.229],[0,0],[-19.005,2.926],[0,0],[0,0],[0,0]],"o":[[0,0],[-19.005,-2.926],[0,0],[0,-19.229],[0,0],[0,0],[0,0],[0,0]],"v":[[22.405,59.103],[10.629,57.29],[-22.405,18.781],[-22.405,-18.781],[10.629,-57.29],[22.405,-59.103],[62.405,-60.904],[62.853,63.257]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.894,0.91,0.937,0.5,0.761,0.778,0.814,1,0.627,0.647,0.69],"ix":9}},"s":{"a":0,"k":[-28.627,0.096],"ix":5},"e":{"a":0,"k":[18.544,0.096],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[304.627,323.904],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 3","np":2,"cix":2,"bm":0,"ix":3,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":180,"st":0,"ct":1,"bm":0},{"ddd":0,"ind":5,"ty":4,"nm":"body","sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":1,"k":[{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":0,"s":[342,795.519,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":30,"s":[342,755.519,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":60,"s":[342,795.519,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":90,"s":[342,755.519,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":120,"s":[342,795.519,0],"to":[0,0,0],"ti":[0,0,0]},{"i":{"x":0.667,"y":1},"o":{"x":0.333,"y":0},"t":150,"s":[342,755.519,0],"to":[0,0,0],"ti":[0,0,0]},{"t":180,"s":[342,795.519,0]}],"ix":2,"l":2},"a":{"a":0,"k":[542,849.519,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[3.776,-8.234],[6.48,-5.502],[5.236,-26.182],[5.298,1.244],[0.922,3.148],[-12.32,23.401],[-16.826,9.724],[-5.216,-5.779],[-0.033,-0.037]],"o":[[-3.544,7.728],[-20.342,17.292],[-1.064,5.334],[-3.193,-0.75],[-7.418,-25.387],[9.059,-17.205],[6.74,-3.895],[0.034,0.037],[6.02,6.766]],"v":[[37.103,-33.275],[19.75,-14.903],[-20.12,52.85],[-29.426,63.992],[-35.087,56.528],[-27.346,-20.49],[12.651,-61.874],[33.201,-58.787],[33.302,-58.675]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"fl","c":{"a":0,"k":[1,1,1,1],"ix":4},"o":{"a":0,"k":100,"ix":5},"r":1,"bm":0,"nm":"Fill 1","mn":"ADBE Vector Graphic - Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[418.063,574.529],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":49,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-45.999],[5.465,-26.203],[0.612,-2.614],[80.281,0],[29.094,24.51],[-27.443,8.173],[-20.693,65.701],[33.919,52.324]],"o":[[0,31.676],[-0.551,2.671],[-24.967,107.25],[-37.557,0],[27.842,6.497],[66.019,-19.661],[18.764,-59.575],[52.398,18.911]],"v":[[142.615,-80.003],[134.21,6.88],[132.464,14.808],[-41.038,180.129],[-142.615,142.907],[-57.771,138.759],[83.717,-0.53],[58.811,-180.129]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"fl","c":{"a":0,"k":[0.219607844949,0.219607844949,0.219607844949,1],"ix":4},"o":{"a":0,"k":100,"ix":5},"r":1,"bm":0,"nm":"Fill 1","mn":"ADBE Vector Graphic - Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[581.038,666.197],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":4,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 2","np":2,"cix":2,"bm":0,"ix":2,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,0],[0,0],[-41.262,0],[0,23.396],[0,0]],"o":[[0,0],[0,23.396],[41.262,0],[0,0],[0,0]],"v":[[-74.711,-43.245],[-74.711,0.883],[0,43.245],[74.711,0.883],[74.711,-43.245]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0.206,0.894,0.91,0.937,0.603,0.761,0.778,0.814,1,0.627,0.647,0.69],"ix":9}},"s":{"a":0,"k":[0,-72.957],"ix":5},"e":{"a":0,"k":[0,38.928],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[540,491.957],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 3","np":2,"cix":2,"bm":0,"ix":3,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[-21.595,7.651],[0.614,-2.613],[31.426,-5.311],[0,0],[0,0],[46.472,0],[0.388,0.088],[0,0],[0,0],[21.411,7.436],[0.549,2.671],[-33.905,-5.418],[0,0],[0,0],[-38.724,0],[-9.474,1.934],[0,0],[0,0]],"o":[[-0.549,2.671],[-21.411,7.436],[0,0],[0,0],[-0.388,0.088],[-46.472,0],[0,0],[0,0],[-31.426,-5.311],[-0.614,-2.613],[21.595,7.651],[0,0],[0,0],[9.482,1.93],[38.763,0],[0,0],[0,0],[33.905,-5.418]],"v":[[175.246,-30.398],[173.5,-22.47],[88.515,0.265],[88.515,20.924],[85.829,21.538],[0,30.398],[-85.829,21.538],[-88.515,20.924],[-88.515,0.265],[-173.5,-22.47],[-175.246,-30.398],[-84.517,-6.078],[-81.608,-5.614],[-81.608,15.372],[0,23.491],[81.608,15.372],[81.608,-5.614],[84.517,-6.078]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.627,0.647,0.69,0.499,0.671,0.688,0.72,0.999,0.714,0.729,0.749],"ix":9}},"s":{"a":0,"k":[-1,-11.476],"ix":5},"e":{"a":0,"k":[-1,40.807],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[540,703.476],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 4","np":2,"cix":2,"bm":0,"ix":4,"mn":"ADBE Vector Group","hd":false},{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-70.465],[5.464,-26.204],[0.614,-2.613],[80.281,0],[24.964,107.248],[0.549,2.671],[0,31.676],[-109.957,0]],"o":[[0,31.676],[-0.549,2.671],[-24.964,107.248],[-80.281,0],[-0.614,-2.613],[-5.464,-26.204],[0,-70.465],[109.957,0]],"v":[[183.653,-72.253],[175.246,14.631],[173.5,22.559],[0,187.878],[-173.5,22.559],[-175.246,14.631],[-183.653,-72.253],[0,-187.878]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.894,0.91,0.937,0.5,0.761,0.778,0.814,1,0.627,0.647,0.69],"ix":9}},"s":{"a":0,"k":[0,-78.447],"ix":5},"e":{"a":0,"k":[0,250.236],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[540,658.447],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 5","np":2,"cix":2,"bm":0,"ix":5,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":180,"st":0,"ct":1,"bm":0},{"ddd":0,"ind":6,"ty":4,"nm":"r hand 2","parent":5,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":1,"k":[{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-170,"s":[9]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-140,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-110,"s":[9]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-80,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-50,"s":[9]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-20,"s":[-5]},{"t":10,"s":[9]}],"ix":10},"p":{"a":0,"k":[693.971,534.229,0],"ix":2,"l":2},"a":{"a":0,"k":[-60,-114,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[-1.262,-17.259],[-14.121,-33.602],[-9.685,-45.873],[-15.195,3.12],[7.429,35.206],[50.19,-0.472]],"o":[[1.297,17.716],[18.046,42.934],[12.076,57.235],[27.378,-5.625],[-27.424,-129.918],[-9.347,0.088]],"v":[[-77.963,-109.532],[-49.933,-56.844],[-17.77,73.669],[43.367,131.855],[75.933,58.278],[-53.647,-132.616]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.627,0.647,0.69,0.5,0.761,0.778,0.814,1,0.894,0.91,0.937],"ix":9}},"s":{"a":0,"k":[-96.971,-0.229],"ix":5},"e":{"a":0,"k":[67.319,-0.229],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":10,"st":-170,"ct":1,"bm":0},{"ddd":0,"ind":7,"ty":4,"nm":"r hand","parent":5,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":1,"k":[{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":10,"s":[9]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":40,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":70,"s":[9]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":100,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":130,"s":[9]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":160,"s":[-5]},{"t":190,"s":[9]}],"ix":10},"p":{"a":0,"k":[693.971,534.229,0],"ix":2,"l":2},"a":{"a":0,"k":[-60,-114,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[-1.262,-17.259],[-14.121,-33.602],[-9.685,-45.873],[-15.195,3.12],[7.429,35.206],[50.19,-0.472]],"o":[[1.297,17.716],[18.046,42.934],[12.076,57.235],[27.378,-5.625],[-27.424,-129.918],[-9.347,0.088]],"v":[[-77.963,-109.532],[-49.933,-56.844],[-17.77,73.669],[43.367,131.855],[75.933,58.278],[-53.647,-132.616]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.627,0.647,0.69,0.5,0.761,0.778,0.814,1,0.894,0.91,0.937],"ix":9}},"s":{"a":0,"k":[-96.971,-0.229],"ix":5},"e":{"a":0,"k":[67.319,-0.229],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":10,"op":180,"st":10,"ct":1,"bm":0},{"ddd":0,"ind":8,"ty":4,"nm":"l hand 2","parent":5,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":1,"k":[{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-170,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-140,"s":[5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-110,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-80,"s":[5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-50,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":-20,"s":[5]},{"t":10,"s":[-5]}],"ix":10},"p":{"a":0,"k":[390.029,532.229,0],"ix":2,"l":2},"a":{"a":0,"k":[64,-116,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[1.262,-17.259],[14.121,-33.602],[9.685,-45.873],[15.195,3.12],[-7.429,35.206],[-50.19,-0.472]],"o":[[-1.297,17.716],[-18.046,42.934],[-12.076,57.235],[-27.378,-5.625],[27.424,-129.918],[9.347,0.088]],"v":[[77.963,-109.532],[49.933,-56.844],[17.77,73.669],[-43.367,131.855],[-75.933,58.278],[53.647,-132.616]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.894,0.91,0.937,0.5,0.761,0.778,0.814,1,0.627,0.647,0.69],"ix":9}},"s":{"a":0,"k":[-97.029,-0.229],"ix":5},"e":{"a":0,"k":[67.262,-0.229],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":10,"st":-170,"ct":1,"bm":0},{"ddd":0,"ind":9,"ty":4,"nm":"l hand","parent":5,"sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":1,"k":[{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":10,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":40,"s":[5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":70,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":100,"s":[5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":130,"s":[-5]},{"i":{"x":[0.667],"y":[1]},"o":{"x":[0.333],"y":[0]},"t":160,"s":[5]},{"t":190,"s":[-5]}],"ix":10},"p":{"a":0,"k":[390.029,532.229,0],"ix":2,"l":2},"a":{"a":0,"k":[64,-116,0],"ix":1,"l":2},"s":{"a":0,"k":[100,100,100],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[1.262,-17.259],[14.121,-33.602],[9.685,-45.873],[15.195,3.12],[-7.429,35.206],[-50.19,-0.472]],"o":[[-1.297,17.716],[-18.046,42.934],[-12.076,57.235],[-27.378,-5.625],[27.424,-129.918],[9.347,0.088]],"v":[[77.963,-109.532],[49.933,-56.844],[17.77,73.669],[-43.367,131.855],[-75.933,58.278],[53.647,-132.616]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0,0.894,0.91,0.937,0.5,0.761,0.778,0.814,1,0.627,0.647,0.69],"ix":9}},"s":{"a":0,"k":[-97.029,-0.229],"ix":5},"e":{"a":0,"k":[67.262,-0.229],"ix":6},"t":1,"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":10,"op":180,"st":10,"ct":1,"bm":0},{"ddd":0,"ind":10,"ty":4,"nm":"Objects","sr":1,"ks":{"o":{"a":0,"k":24,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":0,"k":[340,845.538,0],"ix":2,"l":2},"a":{"a":0,"k":[0,0,0],"ix":1,"l":2},"s":{"a":1,"k":[{"i":{"x":[0.667,0.667,0.667],"y":[1,1,1]},"o":{"x":[0.333,0.333,0.333],"y":[0,0,0]},"t":0,"s":[100,100,100]},{"i":{"x":[0.667,0.667,0.667],"y":[1,1,1]},"o":{"x":[0.333,0.333,0.333],"y":[0,0,0]},"t":30,"s":[85,85,100]},{"i":{"x":[0.667,0.667,0.667],"y":[1,1,1]},"o":{"x":[0.333,0.333,0.333],"y":[0,0,0]},"t":60,"s":[100,100,100]},{"i":{"x":[0.667,0.667,0.667],"y":[1,1,1]},"o":{"x":[0.333,0.333,0.333],"y":[0,0,0]},"t":90,"s":[85,85,100]},{"i":{"x":[0.667,0.667,0.667],"y":[1,1,1]},"o":{"x":[0.333,0.333,0.333],"y":[0,0,0]},"t":120,"s":[100,100,100]},{"i":{"x":[0.667,0.667,0.667],"y":[1,1,1]},"o":{"x":[0.333,0.333,0.333],"y":[0,0,0]},"t":150,"s":[85,85,100]},{"t":180,"s":[100,100,100]}],"ix":6,"l":2}},"ao":0,"shapes":[{"ty":"gr","it":[{"ind":0,"ty":"sh","ix":1,"ks":{"a":0,"k":{"i":[[0,-12.958],[58.075,0],[0,12.958],[-58.075,0]],"o":[[0,12.958],[-58.075,0],[0,-12.958],[58.075,0]],"v":[[105.155,0],[0,23.462],[-105.155,0],[0,-23.462]],"c":true},"ix":2},"nm":"Path 1","mn":"ADBE Vector Shape - Group","hd":false},{"ty":"gf","o":{"a":0,"k":100,"ix":10},"r":1,"bm":0,"g":{"p":3,"k":{"a":0,"k":[0.001,0,0,0,0.465,0,0,0,0.929,0,0,0,0.001,0.8,0.465,0.4,0.929,0],"ix":9}},"s":{"a":0,"k":[-1,18.639],"ix":5},"e":{"a":0,"k":[99.294,18.639],"ix":6},"t":2,"h":{"a":0,"k":0,"ix":7},"a":{"a":0,"k":0,"ix":8},"nm":"Gradient Fill 1","mn":"ADBE Vector Graphic - G-Fill","hd":false},{"ty":"tr","p":{"a":0,"k":[0,0],"ix":2},"a":{"a":0,"k":[0,0],"ix":1},"s":{"a":0,"k":[100,100],"ix":3},"r":{"a":0,"k":0,"ix":6},"o":{"a":0,"k":100,"ix":7},"sk":{"a":0,"k":0,"ix":4},"sa":{"a":0,"k":0,"ix":5},"nm":"Transform"}],"nm":"Group 1","np":2,"cix":2,"bm":0,"ix":1,"mn":"ADBE Vector Group","hd":false}],"ip":0,"op":180,"st":0,"ct":1,"bm":0}],"markers":[],"props":{}}</script>
+
+<script>
+/* ==========================================================================
+   HICOM Assistant — application script
+   Sections: config · session · particles · robot · navigation ·
+             message rendering · API · input handling
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  /* ---------------------------------------------------------------- config */
+  const API_URL = 'https://hdsb.app.n8n.cloud/webhook/hicom-chat';
+
+  const WELCOME_TEXT =
+    "👋 Welcome to HICOM Diecastings! I'm your AI assistant. " +
+    "Ask me anything about IT, HR, Safety, or how to find your way around the plant.";
+
+  const ERROR_TEXT =
+    "⚠️ I'm having trouble connecting right now. Please try again in a moment.";
+
+  // Cycled on the home screen. Malay is included since the plant is in Malaysia.
+  const GREETINGS = [
+    { text: 'Hi 👋',            label: 'English' },
+    { text: 'السلام عليكم', label: 'Salam Alaikum' },
+    { text: 'নমস্কার', label: 'Nomoskar · Bangla' },
+    { text: '你好',               label: 'Nǐ hǎo · 中文' },
+    { text: 'Apa khabar',                   label: 'Bahasa Melayu' },
+    { text: 'How can I help you?',          label: 'Ask me anything' }
+  ];
+
+  const QUICK_REPLIES = [
+    '📍 Where is HR office?',
+    '🔑 How to reset password?',
+    '⛑️ PPE rules for casting area',
+    '📋 First day checklist'
+  ];
+
+  /* --------------------------------------------------------------- session */
+  // One id per browser tab, reused for every request so n8n can thread context.
+  const sessionId = sessionStorage.getItem('hicom_session') || newSessionId();
+  sessionStorage.setItem('hicom_session', sessionId);
+
+  function newSessionId() {
+    if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    // Fallback for browsers without crypto.randomUUID (or non-secure contexts).
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
+  /* ------------------------------------------------------------------- dom */
+  function $(id) { return document.getElementById(id); }
+
+  const homeScreen  = $('homeScreen');
+  const chatScreen  = $('chatScreen');
+  const messagesEl  = $('messages');
+  const chatInput   = $('chatInput');
+  const sendBtn     = $('sendBtn');
+  const robotBtn    = $('robotBtn');
+  const robotPlayer = $('robotPlayer');
+  const robotStatic = $('robotFallback');
+
+  /* ----------------------------------------------------------------- state */
+  const state = {
+    welcomed: false,       // welcome bubble already rendered?
+    busy: false,           // an API call is in flight
+    lastUserMessage: null, // used by the Retry button
+    lastBotRow: null       // used to group consecutive bot messages under one avatar
+  };
+
+  /* ==========================================================================
+     PARTICLES — slow upward drift, fading as they rise
+     ========================================================================== */
+  (function initParticles() {
+    const canvas = $('particles');
+    const ctx = canvas.getContext('2d');
+    let dots = [];
+    let w = 0, h = 0;
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = canvas.clientWidth;
+      h = canvas.clientHeight;
+      canvas.width  = w * dpr;
+      canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function seed() {
+      dots = [];
+      for (let i = 0; i < 26; i++) {
+        dots.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          r: Math.random() * 1.5 + 0.6,
+          speed: Math.random() * 0.28 + 0.10,
+          alpha: Math.random() * 0.22 + 0.10,
+          drift: (Math.random() - 0.5) * 0.12
+        });
+      }
+    }
+
+    function frame() {
+      ctx.clearRect(0, 0, w, h);
+      for (let i = 0; i < dots.length; i++) {
+        const d = dots[i];
+        d.y -= d.speed;
+        d.x += d.drift;
+
+        // Fade out across the top third, then respawn at the bottom.
+        const fade = d.y < h * 0.33 ? Math.max(d.y / (h * 0.33), 0) : 1;
+        if (d.y < -10) { d.y = h + 10; d.x = Math.random() * w; }
+
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,' + (d.alpha * fade).toFixed(3) + ')';
+        ctx.fill();
+      }
+      requestAnimationFrame(frame);
+    }
+
+    resize();
+    seed();
+    frame();
+    window.addEventListener('resize', function () { resize(); seed(); });
+  })();
+
+  /* ==========================================================================
+     GREETING — fades one language in, holds, fades out, moves to the next
+     ========================================================================== */
+  (function initGreeting() {
+    const box  = $('greeting');
+    const main = box.querySelector('.greet-main');
+    const sub  = box.querySelector('.greet-sub');
+    let i = 0;
+
+    const HOLD = 2400;   // visible time
+    const GAP  = 620;    // fade-out before the next one swaps in
+
+    function show() {
+      const g = GREETINGS[i];
+      main.textContent = g.text;
+      sub.textContent  = g.label;
+      // Arabic needs RTL so its text renders in the right order.
+      main.dir = /[؀-ۿ]/.test(g.text) ? 'rtl' : 'ltr';
+
+      box.classList.add('show');
+      setTimeout(function () {
+        box.classList.remove('show');
+        i = (i + 1) % GREETINGS.length;
+        setTimeout(show, GAP);
+      }, HOLD);
+    }
+
+    show();
+  })();
+
+  /* ==========================================================================
+     ROBOT — Lottie load, with graceful degradation
+     ========================================================================== */
+  (function initRobot() {
+    let recovered = false;
+
+    // Chrome blocks fetching robot.json from a file:// page, so if the player
+    // cannot load it we feed it the copy inlined in this document instead.
+    function useInlineData() {
+      if (recovered) return;
+      recovered = true;
+      try {
+        const raw = $('robotFallbackData').textContent.trim();
+        if (!raw || raw.charAt(0) !== '{') throw new Error('no inline animation');
+        robotPlayer.load(JSON.parse(raw));
+      } catch (err) {
+        // Nothing left to try — show the static emoji robot.
+        robotPlayer.style.display = 'none';
+        robotStatic.style.display = 'block';
+      }
+    }
+
+    robotPlayer.addEventListener('error', useInlineData);
+
+    // Some builds swallow the error event, so verify something actually rendered.
+    setTimeout(function () {
+      const drawn = robotPlayer.shadowRoot && robotPlayer.shadowRoot.querySelector('svg, canvas');
+      if (!drawn) useInlineData();
+    }, 1500);
+
+    // If the custom element never upgrades (CDN blocked), go straight to static.
+    setTimeout(function () {
+      if (typeof customElements === 'undefined' || !customElements.get('lottie-player')) {
+        robotPlayer.style.display = 'none';
+        robotStatic.style.display = 'block';
+      }
+    }, 2600);
+  })();
+
+  function bounceRobot() {
+    const el = robotStatic.style.display === 'block' ? robotStatic : robotPlayer;
+    el.classList.remove('bounce');
+    void el.offsetWidth;              // reflow so the animation can restart
+    el.classList.add('bounce');
+    setTimeout(function () { el.classList.remove('bounce'); }, 320);
+  }
+
+  /* ==========================================================================
+     NAVIGATION — home <-> chat
+     ========================================================================== */
+  function openChat() {
+    chatScreen.classList.add('open');
+    chatScreen.setAttribute('aria-hidden', 'false');
+    homeScreen.setAttribute('aria-hidden', 'true');
+
+    // The welcome message is rendered once; history is never cleared.
+    if (!state.welcomed) {
+      state.welcomed = true;
+      addBotBubble(WELCOME_TEXT);
+      renderChips();
+    }
+
+    setTimeout(scrollToBottom, 420);
+  }
+
+  function closeChat() {
+    chatScreen.classList.remove('open');
+    chatScreen.setAttribute('aria-hidden', 'true');
+    homeScreen.setAttribute('aria-hidden', 'false');
+    chatInput.blur();
+  }
+
+  robotBtn.addEventListener('click', function () {
+    bounceRobot();
+    openChat();
+  });
+
+  $('backBtn').addEventListener('click', closeChat);
+
+  // Hardware/browser back closes the chat rather than leaving the app.
+  window.addEventListener('popstate', function () {
+    if (chatScreen.classList.contains('open')) closeChat();
+  });
+
+  /* ==========================================================================
+     MESSAGE RENDERING
+     ========================================================================== */
+  function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function stamp(right) {
+    return el('div', 'stamp' + (right ? ' right' : ''), 'Just now');
+  }
+
+  /**
+   * Creates a bot row [avatar][column] and returns the column to fill.
+   * Consecutive bot rows get a blank spacer instead of a second avatar so a
+   * group of bot messages reads as one block.
+   */
+  function botRow() {
+    const row = el('div', 'msg-row bot');
+    const grouped = state.lastBotRow !== null && state.lastBotRow === messagesEl.lastElementChild;
+
+    const avatar = el('div', 'msg-avatar' + (grouped ? ' spacer' : ''));
+    if (!grouped) avatar.textContent = '🤖';
+
+    const col = el('div', 'msg-col');
+    row.appendChild(avatar);
+    row.appendChild(col);
+    messagesEl.appendChild(row);
+    state.lastBotRow = row;
+    scrollToBottom();
+    return col;
+  }
+
+  function addBotBubble(text) {
+    const col = botRow();
+    col.appendChild(el('div', 'bubble bot', text));
+    col.appendChild(stamp(false));
+    scrollToBottom();
+    return col;
+  }
+
+  function addUserBubble(text) {
+    const row = el('div', 'msg-row user');
+    const col = el('div', 'msg-col');
+    col.appendChild(el('div', 'bubble user', text));
+    col.appendChild(stamp(true));
+    row.appendChild(col);
+    messagesEl.appendChild(row);
+    state.lastBotRow = null;              // next bot message starts a fresh group
+    scrollToBottom();
+  }
+
+  /* ---- Quick reply chips (only under the welcome message) ---- */
+  function renderChips() {
+    const wrap = el('div', 'chips');
+    wrap.id = 'quickChips';
+    QUICK_REPLIES.forEach(function (label) {
+      const chip = el('button', 'chip', label);
+      chip.addEventListener('click', function () {
+        if (state.busy) return;
+        sendMessage(label);
+      });
+      wrap.appendChild(chip);
+    });
+    messagesEl.appendChild(wrap);
+    state.lastBotRow = null;
+    scrollToBottom();
+  }
+
+  function removeChips() {
+    const chips = $('quickChips');
+    if (chips && chips.parentNode) chips.parentNode.removeChild(chips);
+  }
+
+  /* ---- Typing indicator ---- */
+  function showTyping() {
+    const col = botRow();
+    const dots = el('div', 'typing');
+    dots.appendChild(el('span'));
+    dots.appendChild(el('span'));
+    dots.appendChild(el('span'));
+    col.appendChild(dots);
+    col.parentNode.id = 'typingRow';
+    scrollToBottom();
+  }
+
+  function hideTyping() {
+    const row = $('typingRow');
+    if (!row) return;
+    if (state.lastBotRow === row) state.lastBotRow = null;
+    row.parentNode.removeChild(row);
+  }
+
+  /* ---- MAP card ---- */
+  function addMapCard(col, data) {
+    const card = el('div', 'card map');
+
+    const label = el('div', 'map-label');
+    label.appendChild(el('span', null, '📍'));
+    label.appendChild(el('span', null, data.location || data.place || data.department || 'Location'));
+    card.appendChild(label);
+
+    const frame = el('div', 'map-frame');
+    const spinner = el('div', 'spinner');
+    const img = document.createElement('img');
+    img.className = 'loading';
+    img.alt = 'Map';
+
+    img.addEventListener('load', function () {
+      img.classList.remove('loading');
+      if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+      scrollToBottom();
+    });
+    img.addEventListener('error', function () {
+      if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
+      if (img.parentNode) img.parentNode.removeChild(img);
+      frame.appendChild(el('div', 'map-error', '📍 Map image unavailable'));
+      scrollToBottom();
+    });
+
+    frame.appendChild(spinner);
+    frame.appendChild(img);
+    card.appendChild(frame);
+    col.appendChild(card);
+
+    img.src = data.imageUrl;              // set last, after the handlers are attached
+    scrollToBottom();
+  }
+
+  /* ---- Booking / Security cards ---- */
+  function addStatusCard(col, kind, icon, title, text, badge) {
+    const card = el('div', 'card ' + kind);
+
+    const head = el('div', 'card-title');
+    head.appendChild(el('span', null, icon));
+    head.appendChild(el('span', null, title));
+    card.appendChild(head);
+
+    if (text) card.appendChild(el('div', 'card-text', text));
+    card.appendChild(el('span', 'card-badge', badge));
+
+    col.appendChild(card);
+    col.appendChild(stamp(false));
+    scrollToBottom();
+  }
+
+  /* ---- Error bubble with Retry ---- */
+  function addErrorBubble() {
+    const col = botRow();
+    col.appendChild(el('div', 'bubble bot', ERROR_TEXT));
+
+    const retry = el('button', 'retry-btn', 'Retry');
+    retry.addEventListener('click', function () {
+      if (state.busy || !state.lastUserMessage) return;
+      retry.disabled = true;
+      retry.textContent = 'Retrying…';
+      callApi(state.lastUserMessage);
+    });
+    col.appendChild(retry);
+    col.appendChild(stamp(false));
+    scrollToBottom();
+  }
+
+  /* ==========================================================================
+     RESPONSE DISPATCH — one branch per response type
+     ========================================================================== */
+  function renderResponse(data) {
+    const text = data && data.response ? String(data.response) : '';
+    const type = data && data.type ? String(data.type).toUpperCase() : 'QA';
+
+    switch (type) {
+      case 'MAP': {
+        // Text bubble always; the map card only when an image actually exists.
+        const col = addBotBubble(text || 'Here is the location.');
+        if (data.imageFound && data.imageUrl) addMapCard(col, data);
+        break;
+      }
+
+      case 'BOOKING':
+        addStatusCard(botRow(), 'booking', '✅', 'Meeting Request Sent', text, 'Department notified');
+        break;
+
+      case 'SECURITY':
+        addStatusCard(botRow(), 'security', '🚨', 'Security Team Alerted', text, 'Report logged');
+        break;
+
+      // QA and FALLBACK both render as a plain bubble.
+      default:
+        addBotBubble(text || "I didn't quite catch that — could you rephrase?");
+    }
+  }
+
+  /* ==========================================================================
+     API
+     ========================================================================== */
+  function setBusy(busy) {
+    state.busy = busy;
+    chatInput.disabled = busy;
+    updateSendButton();
+  }
+
+  function callApi(message) {
+    setBusy(true);
+    showTyping();
+
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: message, sessionId: sessionId })
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        hideTyping();
+        // n8n may return the payload wrapped in an array or nested under `data`.
+        if (Array.isArray(data)) data = data[0] || {};
+        if (data && data.data && data.response === undefined) data = data.data;
+        renderResponse(data);
+      })
+      .catch(function (err) {
+        hideTyping();
+        console.error('[HICOM] chat request failed:', err);
+        addErrorBubble();
+      })
+      .then(function () {
+        setBusy(false);
+        scrollToBottom();
+      });
+  }
+
+  /* ==========================================================================
+     SENDING
+     ========================================================================== */
+  function sendMessage(text) {
+    const message = String(text || '').trim();
+    if (!message || state.busy) return;
+
+    removeChips();                     // chips disappear once a real message is sent
+    state.lastUserMessage = message;
+
+    addUserBubble(message);
+    chatInput.value = '';
+    updateSendButton();
+    callApi(message);
+  }
+
+  /* ==========================================================================
+     INPUT HANDLING
+     ========================================================================== */
+  function updateSendButton() {
+    const ready = chatInput.value.trim().length > 0 && !state.busy;
+    sendBtn.classList.toggle('active', ready);
+    sendBtn.disabled = !ready;
+  }
+
+  chatInput.addEventListener('input', updateSendButton);
+
+  chatInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(chatInput.value);
+    }
+  });
+
+  sendBtn.addEventListener('click', function () {
+    sendMessage(chatInput.value);
+  });
+
+  // Keep the newest message visible when the mobile keyboard opens.
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      if (chatScreen.classList.contains('open')) scrollToBottom();
+    });
+  }
+
+  updateSendButton();
+})();
+</script>
+</body>
+</html>
