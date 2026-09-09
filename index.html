@@ -546,6 +546,12 @@ lottie-player.bounce{ animation: robotBounce .3s ease; }
   transition: background .18s ease, color .18s ease, transform .15s ease;
 }
 .chip:active{ transform: scale(.97); background: var(--gold); color:#0a1628; }
+/* The visitor chip leads the row, so it carries a little more weight */
+.chip.primary{
+  background: rgba(245,166,35,.16);
+  border-color: var(--gold);
+  color:#FFD489;
+}
 
 /* ==========================================================================
    6. SPECIAL MESSAGE CARDS
@@ -860,11 +866,25 @@ lottie-player.bounce{ animation: robotBounce .3s ease; }
     { text: 'How can I help you?',          label: 'Ask me anything' }
   ];
 
+  // Shown to site visitors. Answered locally rather than through the API so a
+  // guest is never met with a lookup failure. Edit this copy freely.
+  const VISITOR_BRIEF = [
+    '👋 Welcome to HICOM Diecastings Sdn. Bhd.',
+    '',
+    'We are a Malaysian manufacturer of high-pressure aluminium die cast components for the automotive industry.',
+    '',
+    'While you are on site, please wear your visitor pass at all times, follow all safety signage, and stay with your host in production areas.',
+    '',
+    'How can I help you today?'
+  ].join('\n');
+
+  // A chip with a 'reply' is answered locally; the rest go to the assistant.
   const QUICK_REPLIES = [
-    '📍 Where is HR office?',
-    '🔑 How to reset password?',
-    '⛑️ PPE rules for casting area',
-    '📋 First day checklist'
+    { label: "🪪 I'm a visitor", reply: VISITOR_BRIEF, primary: true },
+    { label: '📍 Where is HR office?' },
+    { label: '🔑 How to reset password?' },
+    { label: '⛑️ PPE rules for casting area' },
+    { label: '📋 First day checklist' }
   ];
 
   /* --------------------------------------------------------------- session */
@@ -1139,17 +1159,35 @@ lottie-player.bounce{ animation: robotBounce .3s ease; }
   function renderChips() {
     const wrap = el('div', 'chips');
     wrap.id = 'quickChips';
-    QUICK_REPLIES.forEach(function (label) {
-      const chip = el('button', 'chip', label);
+    QUICK_REPLIES.forEach(function (q) {
+      const chip = el('button', 'chip' + (q.primary ? ' primary' : ''), q.label);
       chip.addEventListener('click', function () {
         if (state.busy) return;
-        sendMessage(label);
+        if (q.reply) answerLocally(q.label, q.reply);
+        else sendMessage(q.label);
       });
       wrap.appendChild(chip);
     });
     messagesEl.appendChild(wrap);
     state.lastBotRow = null;
     scrollToBottom();
+  }
+
+  /**
+   * Replies from canned copy instead of calling the webhook, but keeps the same
+   * beat as a real answer (user bubble -> typing -> reply) so it reads naturally.
+   */
+  function answerLocally(userText, botText) {
+    removeChips();
+    addUserBubble(userText);
+    setBusy(true);
+    showTyping();
+    setTimeout(function () {
+      hideTyping();
+      addBotBubble(botText);
+      setBusy(false);
+      scrollToBottom();
+    }, 650);
   }
 
   function removeChips() {
